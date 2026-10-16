@@ -1,0 +1,88 @@
+--- main.py.before
++++ main.py
+@@ -203,7 +203,7 @@
+ #   - A3: 프로그램 작동 상태 표시
+ #   - A4: 값이 1이면 매매 중단, 그 외에는 계속 작동
+ # =========================================================
+-USE_GOOGLE_SHEET_CONTROL = os.getenv("USE_GOOGLE_SHEET_CONTROL", "1").strip() == "1"
++USE_GOOGLE_SHEET_CONTROL = False  # Dashboard, trade sync and control moved off Sheets.
+ GOOGLE_SHEET_KEY = os.getenv("GOOGLE_SHEET_KEY", "").strip()
+ GOOGLE_WORKSHEET_NAME = os.getenv("GOOGLE_WORKSHEET_NAME", "").strip()  # 비워두면 첫 번째 시트
+ GOOGLE_TRADE_ARCHIVE_NAME = os.getenv("GOOGLE_TRADE_ARCHIVE_NAME", "매매전체기록").strip()
+@@ -3854,8 +3854,7 @@
+         )
+         if not queued:
+             raise RuntimeError("Could not persist trade-log outbox")
+-        sheet_flush_trade_outbox(force=True)
+-        log(f"[SHEET] 거래로그 저장: {side} {name}({code}) {qty}주 @{price}")
++        log(f"[ANALYTICS] 거래로그 저장: {side} {name}({code}) {qty}주 @{price}")
+     except Exception as e:
+         log(f"[SHEET] 거래로그 기록 실패: {repr(e)}")
+ 
+@@ -4777,6 +4776,26 @@
+         self.last_mode = "OFF"
+         self.next_background = 0.0
+ 
++    def local_stop_requested(self):
++        path = os.getenv("DASHBOARD_CONTROL_FILE", "/var/lib/kiwoom-dashboard-control/command.json")
++        try:
++            with open(path, encoding="utf-8") as handle:
++                command = json.load(handle)
++            if not isinstance(command.get("paused"), bool):
++                raise ValueError("Invalid dashboard control")
++            self.state["dashboard_control"] = {
++                "request_id": str(command.get("id", "")),
++                "paused": command["paused"], "acknowledged_at": now_str(),
++            }
++            return command["paused"]
++        except FileNotFoundError:
++            self.state["dashboard_control"] = {"request_id": "", "paused": True, "acknowledged_at": now_str()}
++            return True
++        except Exception as e:
++            log(f"[CONTROL] local control unavailable: {type(e).__name__}; paused for safety")
++            self.state["dashboard_control"] = {"request_id": "", "paused": True, "acknowledged_at": now_str()}
++            return True
++
+     def checkpoint(self):
+         self.tick()
+         return (
+@@ -4791,11 +4810,13 @@
+             return
+         self.next_poll = started + SELL_POLL_SEC
+         if started >= self.next_control:
+-            self.paused = sheet_stop_requested(self.ws)
++            self.paused = self.local_stop_requested()
++            save_state(self.state)
+             self.next_control = time.monotonic() + CONTROL_REFRESH_SEC
+         if self.paused:
+             if started >= self.next_display:
+-                sheet_update_status(self.ws, "작동중단(제어셀=1)")
++                save_state(self.state)
++                log("[CONTROL] automation paused; existing orders are not cancelled")
+                 self.next_display = time.monotonic() + DISPLAY_REFRESH_SEC
+             return
+ 
+@@ -4850,10 +4871,8 @@
+             save_state(self.state)
+             self.next_save = time.monotonic() + CONTROL_REFRESH_SEC
+         if started >= self.next_display:
+-            sheet_update_status(self.ws, f"작동중 · 가격감시 목표 {SELL_POLL_SEC:g}초")
+-            sheet_flush_trade_outbox(self.ws)
+             print_dashboard(self.deposit, self.equity, self.positions, self.state)
+-            update_sheet_positions(self.deposit, self.equity, self.positions, self.state)
++            # Holdings are displayed by the private web dashboard, not Sheets.
+             self.next_display = time.monotonic() + (DISPLAY_REFRESH_SEC if active else 60.0)
+         if started >= self.next_health:
+             analytics_event("", LIVE_STRATEGY_NAME, "MONITOR_HEALTH", "", None, {
+@@ -4879,10 +4898,7 @@
+                          "comparison": SHADOW_STRATEGIES,
+                          "sell_poll_sec": SELL_POLL_SEC})
+ 
+-    ws = connect_control_sheet()
+-    sheet_ensure_trade_log_header(ws)
+-    sheet_flush_trade_outbox(ws, force=True)
+-    sheet_update_status(ws, "🟢 프로그램 시작")
++    ws = None  # Google Sheets is disconnected; SQLite remains authoritative.
+ 
+     state = load_state()
+     try:
