@@ -107,6 +107,10 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request('/bot-api/control',{'action':'resume'},token)[0],404)
         status,result,_=self.request('/bot-api/control',{'action':'pause'},token);self.assertEqual(status,200)
         _,data,_=self.request('/bot-api/snapshot',token=token);self.assertNotEqual(data['source']['control_id'],result['id']);self.assertFalse(data['source']['paused'])
+    def test_control_unavailable_until_bot_is_integrated(self):
+        path=self.root/'trail_state.json';data=json.loads(path.read_text());data.pop('dashboard_control');path.write_text(json.dumps(data))
+        _,session,_=self.request('/bot-api/login',{'password':'Test-password-123'})
+        self.assertEqual(self.request('/bot-api/control',{'action':'pause'},session['token'])[0],409);self.assertFalse(self.app.control.exists())
     def test_missing_source_returns_unavailable_not_fake_empty_account(self):
         (self.root/'trail_state.json').unlink();_,session,_=self.request('/bot-api/login',{'password':'Test-password-123'})
         self.assertEqual(self.request('/bot-api/snapshot',token=session['token'])[0],503)

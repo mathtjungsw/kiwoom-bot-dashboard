@@ -119,6 +119,9 @@ class Application:
 
     def pause(self):
         with self.lock:
+            saved=json.loads((self.reader.root / "trail_state.json").read_text(encoding="utf-8"))
+            if not isinstance(saved.get("dashboard_control",{}).get("paused"),bool):
+                raise ValueError("봇의 웹 제어 연결을 먼저 완료해야 합니다.")
             command = {"id": secrets.token_hex(16), "paused": True}
             self.control.parent.mkdir(parents=True, exist_ok=True)
             temp = self.control.with_suffix(".tmp")
@@ -210,7 +213,11 @@ def handler(app):
                 app.store.logout(token)
                 return self.reply(200, {"ok": True})
             if self.path == "/bot-api/control" and data == {"action": "pause"}:
-                return self.reply(200, {"ok": True, "id": app.pause()["id"]})
+                try:
+                    command=app.pause()
+                except (ValueError,OSError):
+                    return self.reply(409, {"error":"봇의 웹 제어 연결을 확인하지 못했습니다. 서버 확인 후 다시 시도하세요."})
+                return self.reply(200, {"ok": True, "id": command["id"]})
             self.reply(404, {"error": "지원하지 않는 요청입니다."})
     return Handler
 
