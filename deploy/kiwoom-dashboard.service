@@ -1,0 +1,23 @@
+[Unit]
+Description=Private Kiwoom dashboard API
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/kiwoom-dashboard
+ExecStart=/opt/bots/kiwoom-stock/.venv/bin/python3 -m backend.server
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/bots/kiwoom-stock
+ReadWritePaths=/var/lib/kiwoom-dashboard /var/lib/kiwoom-dashboard-control
+MemoryMax=128M
+UMask=0077
+Nice=5
+
+[Install]
+WantedBy=multi-user.target
