@@ -100,6 +100,16 @@ class CompanyInfoTests(unittest.TestCase):
         self.assertEqual(value['profile']['overview'],'Imported company introduction')
         self.assertFalse(value['pending'])
 
+    def test_reviewed_official_description_is_not_replaced_by_generic_homepage_text(self):
+        rows=parse_listing(LISTING,NOW)
+        rows['005930'].update(overview='Verified business description',overview_method='reviewed_official_sources',overview_checked_at=NOW-100)
+        atomic_json(self.root/'listing.json',dict(checked_at=NOW,rows=rows))
+        def no_lookup(url):raise AssertionError('Reviewed description must not make a website request')
+        result=Worker(self.root,self.fetch,lambda:NOW,site_lookup=no_lookup).profile('005930')
+        self.assertEqual(result['overview'],'Verified business description')
+        self.assertEqual(result['overview_checked_at'],NOW-100)
+        self.assertNotIn('overview_unavailable',result)
+
     def test_site_failure_keeps_previous_intro_with_its_original_check_date(self):
         atomic_json(self.root/'profiles/005930.json',dict(code='005930',overview='Last verified introduction',
                     overview_checked_at=NOW-MONTH,overview_source_url='https://example.com'))

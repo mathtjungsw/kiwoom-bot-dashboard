@@ -49,7 +49,9 @@ class Worker:
                 found = dict(found, refresh_at=now + 86400)
             previous = read_json(self.root / 'profiles' / (code + '.json'))
             # Profile lookups run only in this low-priority worker, never in the bot/API.
-            if found.get('website') and quota(self.root, now, 'site_quota.json', 10, 100):
+            if found.get('overview') and found.get('overview_method') == 'reviewed_official_sources':
+                pass  # A reviewed business description is more useful than a homepage slogan.
+            elif found.get('website') and quota(self.root, now, 'site_quota.json', 10, 100):
                 try:
                     found.update(self.site_lookup(found['website']), overview_checked_at=now)
                 except Exception:

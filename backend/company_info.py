@@ -123,7 +123,7 @@ def parse_listing(raw, now):
         if not re.fullmatch(r'[0-9A-Z]{6}', code) or not item['회사명']:
             continue
         website = re.search(r'https?://[^\s]+', item['홈페이지'])
-        # Company websites are links only; never fetched by this service.
+        # Worker destinations come only from the official catalog, not web request input.
         result[code] = dict(code=code, name=item['회사명'][:80], industry=item['업종'][:200],
                             products=item['주요제품'][:1500], website=safe_url(website[0]) if website else None,
                             source_url=KIND_PAGE, checked_at=now)
