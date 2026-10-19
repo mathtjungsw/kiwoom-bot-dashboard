@@ -36,7 +36,9 @@ def main():
         raise RuntimeError('Unreviewed API server changes; inspect before applying')
     for name in MODULES[1:]:
         if (target/name).exists() and sha(target/name)!=sha(stage/name):
-            raise RuntimeError('Unreviewed module changes: '+name)
+            previous=subprocess.check_output(['git','show','5da6f5c:'+name],cwd=stage).replace(b'\r\n',b'\n')
+            if sha(target/name)!=hashlib.sha256(previous).hexdigest():
+                raise RuntimeError('Unreviewed module changes: '+name)
     for name in UNITS:
         installed=Path('/etc/systemd/system')/name
         if installed.exists() and sha(installed)!=sha(stage/'deploy'/name):

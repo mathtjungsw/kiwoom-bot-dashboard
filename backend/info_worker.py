@@ -109,7 +109,9 @@ class Worker:
                 if not re.fullmatch(r'[0-9A-Z]{6}', code) or not isinstance(name, str) or not 1 <= len(name) <= 80:
                     continue
                 profile = read_json(self.root / 'profiles' / (code + '.json'))
-                if not profile or self.clock() >= profile.get('refresh_at', profile.get('checked_at', 0) + MONTH):
+                legacy = profile and not profile.get('unavailable') and not (
+                    profile.get('overview_method') or 'overview_unavailable' in profile)
+                if not profile or legacy or self.clock() >= profile.get('refresh_at', profile.get('checked_at', 0) + MONTH):
                     profile = self.profile(code)
                 self.news(code, (profile or {}).get('name') or name)
             except Exception:

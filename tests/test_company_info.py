@@ -89,6 +89,17 @@ class CompanyInfoTests(unittest.TestCase):
         self.assertEqual(value['products'],'부품 & 센서')
         self.assertEqual(read_json(self.root/'site_quota.json')['daily'],1)
 
+    def test_imported_basic_profile_is_enriched_once_even_when_news_is_fresh(self):
+        atomic_json(self.root/'listing.json',dict(checked_at=NOW,rows=parse_listing(LISTING,NOW)))
+        atomic_json(self.root/'profiles/005930.json',parse_listing(LISTING,NOW)['005930'])
+        atomic_json(self.root/'news/005930.json',dict(state='READY',items=[],expires_at=NOW+NEWS_TTL))
+        self.assertTrue(self.cache.get('005930','테스트전자')['pending'])
+        lookup=lambda url:dict(overview='Imported company introduction',overview_method='site_metadata')
+        Worker(self.root,self.fetch,lambda:NOW,site_lookup=lookup).run()
+        value=self.cache.get('005930','테스트전자')
+        self.assertEqual(value['profile']['overview'],'Imported company introduction')
+        self.assertFalse(value['pending'])
+
     def test_site_failure_keeps_previous_intro_with_its_original_check_date(self):
         atomic_json(self.root/'profiles/005930.json',dict(code='005930',overview='Last verified introduction',
                     overview_checked_at=NOW-MONTH,overview_source_url='https://example.com'))

@@ -175,7 +175,9 @@ class InfoCache:
         if news and now >= news.get('expires_at', 0):
             news_path.unlink(missing_ok=True)
             news = {}
-        profile_due = not profile or now >= profile.get('refresh_at', profile.get('checked_at', 0) + MONTH)
+        legacy = profile and not profile.get('unavailable') and not (
+            profile.get('overview_method') or 'overview_unavailable' in profile)
+        profile_due = not profile or legacy or now >= profile.get('refresh_at', profile.get('checked_at', 0) + MONTH)
         news_due = not news
         queue = self.root / 'queue'
         job = queue / (code + '.json')
