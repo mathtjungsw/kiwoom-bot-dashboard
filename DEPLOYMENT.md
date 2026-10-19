@@ -1,5 +1,19 @@
 # 2026-10-16 적용 확인
 
+## 2026-10-19 계좌 요약 확장 적용
+
+- 화면과 API에 투입금 대비 누적손익/누적수익률, 현재 보유분 총매입/총평가를 분리 표시.
+- 최초 투입금과 추가 순입출금은 서버의 비공개 인증 DB에만 설정. 금액이나 계좌 원본은 공개 저장소에 저장하지 않음.
+- 트레일중/트레일완충 종목에 저장된 최고가와 실제 스톱가의 평단 대비 수익률 표시. 실제 체결 수익률을 보장하는 값은 아님.
+- 종목별 수익률의 세금/수수료 계산 및 자동매매 전략은 변경하지 않음.
+- 적용 소스: `0b07daa894f58bafcc4059433879379e18e1cc73`.
+- 백업: `/opt/kiwoom-dashboard/backups/summary_20261019_105124/` (API 코드와 일관된 인증/설정 DB).
+- Ubuntu EC2에서 문법검사 및 Python 테스트 40개 통과. 로컬 Node 테스트 9개 통과.
+- `SUMMARY_UPDATED; AUTHENTICATION_OK; BOT_UNCHANGED` 확인. API만 재시작했으며 봇 소스 해시 및 PID 동일성 검증 통과.
+- 운영 화면에서 설정된 투입금과 누적 성과, 최고 수익률/매도 감시 기준 표시 및 로그인 유지 확인.
+- 운영 HTTPS health 200, 인증 없는 snapshot 401 확인. SSH 규칙/외부 포트 변경 없음.
+- 터미널 입력 문제는 EC2 Instance Connect 탭 재연결 후 순차 키 입력으로 해결. 사용자 비밀번호는 입력하거나 열람하지 않음.
+
 운영 화면: https://mathtjungsw.github.io/kiwoom-bot-dashboard/
 저장소: https://github.com/mathtjungsw/kiwoom-bot-dashboard
 
