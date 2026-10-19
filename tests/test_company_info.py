@@ -187,5 +187,10 @@ class CompanyInfoTests(unittest.TestCase):
         for text in ['CPUQuota=10%','MemoryMax=64M','Nice=19','InaccessiblePaths=/opt/bots/kiwoom-stock','NoNewPrivileges=yes']:
             self.assertIn(text,unit)
 
+    def test_web_service_only_writes_public_queue_news_and_cannot_read_provider_key(self):
+        dropin=(Path(__file__).resolve().parents[1]/'deploy/company-info.conf').read_text()
+        self.assertIn('ReadWritePaths=/var/lib/kiwoom-dashboard-info/queue /var/lib/kiwoom-dashboard-info/news',dropin)
+        self.assertIn('InaccessiblePaths=-/var/lib/kiwoom-dashboard-info/provider.json',dropin)
+
 
 if __name__=='__main__':unittest.main()

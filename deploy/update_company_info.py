@@ -13,6 +13,7 @@ import urllib.request
 
 MODULES = ('backend/server.py', 'backend/company_info.py', 'backend/info_worker.py', 'backend/official_site.py')
 UNITS = ('kiwoom-company-info.service', 'kiwoom-company-info.path', 'kiwoom-company-info.timer')
+API_DROPIN = Path('/etc/systemd/system/kiwoom-dashboard.service.d/company-info.conf')
 
 
 def run(*args, **kwargs):
@@ -43,6 +44,8 @@ def main():
         installed=Path('/etc/systemd/system')/name
         if installed.exists() and sha(installed)!=sha(stage/'deploy'/name):
             raise RuntimeError('Unreviewed service unit: '+name)
+    if API_DROPIN.exists() and sha(API_DROPIN)!=sha(stage/'deploy/company-info.conf'):
+        raise RuntimeError('Unreviewed API company cache permissions')
     run(python,'-m','py_compile',*(str(stage/name) for name in MODULES))
     run(python,'-m','unittest','discover','-s','tests','-v',cwd=stage,env=dict(os.environ,BOT_SOURCE=str(bot)))
     bot_hash=sha(bot)
@@ -56,6 +59,7 @@ def main():
     originals={}
     files=[(target/name,stage/name) for name in MODULES]
     files.extend((Path('/etc/systemd/system')/name,stage/'deploy'/name) for name in UNITS)
+    files.append((API_DROPIN,stage/'deploy/company-info.conf'))
     for index,(dest,source) in enumerate(files):
         originals[dest]=backup/str(index) if dest.exists() else None
         if dest.exists():shutil.copy2(dest,originals[dest])
@@ -69,7 +73,9 @@ def main():
         raise RuntimeError('Import the public company catalog before installing; bot/API left unchanged')
     run('systemctl','stop','kiwoom-dashboard')
     try:
-        for dest,source in files:shutil.copy2(source,dest)
+        for dest,source in files:
+            dest.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copy2(source,dest)
         run('systemctl','daemon-reload')
         run('systemctl','enable','--now','kiwoom-company-info.path','kiwoom-company-info.timer')
         run('systemctl','start','kiwoom-dashboard')
