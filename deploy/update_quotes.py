@@ -15,6 +15,13 @@ from zoneinfo import ZoneInfo
 
 
 BOT_BASELINE = 'b7c21bb40a79bd597eeb1b46e2b0c2311076e9929ec173cf4eeea3aee43d52f4'
+PROFILES = {
+    'execution': dict(baseline=BOT_BASELINE, reader_revision='c31f2ce', version='2026-10-19_EXECUTION_QUOTES',
+                      prefix='execution_quotes', extra_tests=[]),
+    'krx-after': dict(baseline='95f9ccfd1e7f8dfe6c87b183445b00c00b233c68ed1cdda96798614d6b2b361b',
+                      reader_revision='267266b', version='2026-10-19_KRX_AFTERMARKET',
+                      prefix='krx_aftermarket', extra_tests=['test_krx_after']),
+}
 
 
 def run(*args, **kwargs):
@@ -45,20 +52,22 @@ def install(source, target):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--bot-stage',type=Path,required=True)
+    parser.add_argument('--profile',choices=PROFILES,default='execution')
     args=parser.parse_args()
+    profile=PROFILES[args.profile]
     if os.geteuid()!=0:raise SystemExit('Run with sudo')
     stage=args.bot_stage.resolve()
     repo=Path(__file__).resolve().parents[1]
     bot=Path('/opt/bots/kiwoom-stock/main.py')
     reader=Path('/opt/kiwoom-dashboard/backend/reader.py')
     python=bot.parent/'.venv/bin/python3'
-    if sha(bot)!=BOT_BASELINE:raise RuntimeError('Bot source changed; review current code first')
-    if sha(stage/'main.py.before')!=BOT_BASELINE:raise RuntimeError('Private stage baseline mismatch')
-    old_reader=subprocess.check_output(['git','show','c31f2ce:backend/reader.py'],cwd=repo).replace(b'\r\n',b'\n')
+    if sha(bot)!=profile['baseline']:raise RuntimeError('Bot source changed; review current code first')
+    if sha(stage/'main.py.before')!=profile['baseline']:raise RuntimeError('Private stage baseline mismatch')
+    old_reader=subprocess.check_output(['git','show',profile['reader_revision']+':backend/reader.py'],cwd=repo).replace(b'\r\n',b'\n')
     if normalized(reader)!=hashlib.sha256(old_reader).hexdigest():
         raise RuntimeError('Dashboard reader changed; review current code first')
     run(str(python),'-m','py_compile',str(stage/'main.py'),str(repo/'backend/reader.py'))
-    run(str(python),'-m','unittest','test_execution_quotes','test_trailing','test_fixed_monitor','test_etf_guard','-v',cwd=stage)
+    run(str(python),'-m','unittest','test_execution_quotes','test_trailing','test_fixed_monitor','test_etf_guard',*profile['extra_tests'],'-v',cwd=stage)
     run(str(python),'-m','unittest','discover','-s','tests','-v',cwd=repo,
         env=dict(os.environ,BOT_SOURCE=str(stage/'main.py'),PYTHONUTF8='1'))
     now=dt.datetime.now(ZoneInfo('Asia/Seoul'))
@@ -67,7 +76,7 @@ def main():
         raise RuntimeError('Apply outside trading hours; no live orders may be used for verification')
     for service in ('kiwoom-stock','kiwoom-dashboard'):
         run('systemctl','is-active','--quiet',service)
-    backup=bot.parent/'backups'/now.strftime('execution_quotes_%Y%m%d_%H%M%S')
+    backup=bot.parent/'backups'/now.strftime(profile['prefix']+'_%Y%m%d_%H%M%S')
     backup.mkdir(parents=True,mode=0o700)
     shutil.copy2(bot,backup/'main.py')
     shutil.copy2(reader,backup/'reader.py')
@@ -90,7 +99,7 @@ def main():
                 row=db.execute("SELECT ts,payload_json FROM events WHERE event_type='RUNTIME_START' ORDER BY id DESC LIMIT 1").fetchone()
                 health=db.execute("SELECT ts,payload_json FROM events WHERE event_type='MONITOR_HEALTH' ORDER BY id DESC LIMIT 1").fetchone()
             state=json.loads((bot.parent/'trail_state.json').read_text())
-            if (row and json.loads(row[1]).get('implementation_version')=='2026-10-19_EXECUTION_QUOTES'
+            if (row and json.loads(row[1]).get('implementation_version')==profile['version']
                     and dt.datetime.fromisoformat(row[0]).replace(tzinfo=ZoneInfo('Asia/Seoul'))>=started_at
                     and health and json.loads(health[1]).get('account_valid') is True
                     and dt.datetime.fromisoformat(health[0]).replace(tzinfo=ZoneInfo('Asia/Seoul'))>=started_at
@@ -107,6 +116,12 @@ def main():
         assert all('monitor_status' in p and 'last_valid_quote_at' in p for p in sample['positions'])
         assert sha(bot)==sha(stage/'main.py')
         assert normalized(reader)==normalized(repo/'backend/reader.py')
+        previous=json.loads((backup/'trail_state.json').read_text())['positions']
+        current=json.loads((bot.parent/'trail_state.json').read_text())['positions']
+        fields=('entry','qty','stage','max_price','trail_stop_price')
+        assert previous.keys()==current.keys() and all(previous[c].get(k)==current[c].get(k) for c in previous for k in fields),'Holding/trailing state changed during closed-market deployment'
+        with sqlite3.connect((bot.parent/'data/trading_analytics.db').as_uri()+'?mode=ro',uri=True,timeout=1) as db:
+            assert db.execute('SELECT count(*) FROM orders WHERE ts>=?',(started_at.replace(tzinfo=None).isoformat(' '),)).fetchone()[0]==0,'Unexpected order during closed-market deployment'
         print('EXECUTION_QUOTES_UPDATED; BACKUP='+str(backup),flush=True)
         print('STRATEGY_UNCHANGED; NO_TEST_ORDERS; POSITIONS='+str(len(sample['positions'])),flush=True)
     except BaseException:

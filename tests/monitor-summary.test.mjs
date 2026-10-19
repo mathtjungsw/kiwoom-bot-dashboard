@@ -22,3 +22,22 @@ test('auction is clearly no-orders and timestamps are separate',()=>{
 test('untrusted server reason cannot inject markup',()=>{
   assert.ok(!monitorSummary({monitor_status:'<script>',monitor_reason:'<script>'},fmt).includes('<script>'));
 });
+test('KRX after remains active for an NXT-ineligible stock',()=>{
+  const html=monitorSummary({monitor_status:'ACTIVE',quote_session:'KRX_AFTER',price_source:'KRX',nxt_eligible:false},fmt);
+  assert.ok(html.includes('KRX 애프터 · 매도 감시 중'));
+  assert.ok(!html.includes('감시 불가'));
+});
+test('bid-only quotes explicitly pause peak updates and show book time',()=>{
+  const html=monitorSummary({monitor_status:'EXIT_ONLY_BID',quote_session:'KRX_AFTER',quote_basis:'BID_ONLY',last_valid_bid_at:'a'},fmt);
+  assert.ok(html.includes('최고가 갱신 보류'));
+  assert.ok(html.includes('매수호가 10:20'));
+});
+test('accepted or unverified orders are not presented as fills',()=>{
+  const html=monitorSummary({monitor_status:'ORDER_PENDING',quote_session:'KRX_AFTER'},fmt);
+  assert.ok(html.includes('매도 주문·미체결 확인 중'));
+});
+test('price monitoring does not hide a sell preflight block',()=>{
+  const html=monitorSummary({monitor_status:'ORDER_BLOCKED',order_guard_reason:'ORDER_BOOK_UNAVAILABLE'},fmt);
+  assert.ok(html.includes('매도 주문 보류'));
+  assert.ok(html.includes('유효 매수호가 확인 불가'));
+});

@@ -52,12 +52,24 @@ def capital_summary(equity, capital=None):
 
 def monitoring(now, saved, expected, active, paused, closed_date):
     minute = now.hour * 60 + now.minute
+    after = 960 <= minute < 1200
+    allowed = ("KRX", "NXT") if after else (expected,)
     eligible = saved.get("nxt_eligible")
-    reason = "NOT_ELIGIBLE" if expected == "NXT" and eligible is False else str(saved.get("quote_reason") or "NOT_VERIFIED")
+    reason = "NOT_ELIGIBLE" if not after and expected == "NXT" and eligible is False else str(saved.get("quote_reason") or "NOT_VERIFIED")
+    if after and reason == "NOT_ELIGIBLE":
+        reason = "KRX_AFTER_NOT_VERIFIED"
     result = dict(monitor_reason=reason, nxt_eligible=eligible,
                   last_valid_quote_at=timestamp(saved.get("last_valid_quote_at")),
                   last_valid_trade_at=timestamp(saved.get("last_valid_trade_at")),
+                  last_valid_bid_at=timestamp(saved.get("last_valid_bid_at")),
+                  quote_basis=str(saved.get("last_valid_quote_basis") or saved.get("quote_basis") or "TRADE"),
+                  quote_session=str(saved.get("last_valid_quote_session") or saved.get("quote_session") or ""),
+                  order_guard_reason=str(saved.get("order_guard_reason") or ""),
                   quote_checked_at=timestamp(saved.get("quote_checked_at")))
+    retry_at = timestamp(saved.get("sell_retry_after"))
+    if (not result["order_guard_reason"] and retry_at and dt.datetime.fromisoformat(retry_at) > now
+            and saved.get("last_sell_error", {}).get("market") == saved.get("price_source")):
+        result["order_guard_reason"] = "ORDER_RETRY_WAIT"
     if not active or paused is not False:
         status = "PAUSED" if paused else "SERVICE_UNAVAILABLE"
     elif now.weekday() > 4 or closed_date == now.date().isoformat():
@@ -68,9 +80,11 @@ def monitoring(now, saved, expected, active, paused, closed_date):
         status = "NOT_ELIGIBLE"
     else:
         at = result["last_valid_quote_at"]
-        trade = result["last_valid_trade_at"]
-        fresh = all(value and 0 <= (now-dt.datetime.fromisoformat(value)).total_seconds() <= 120 for value in (at, trade))
-        if saved.get("quote_status") != "VALID" or saved.get("price_source") != expected or not fresh:
+        bid_only = result["quote_basis"] == "BID_ONLY"
+        reference = result["last_valid_bid_at"] if bid_only else result["last_valid_trade_at"]
+        fresh = bool(at and reference and 0 <= (now-dt.datetime.fromisoformat(at)).total_seconds() <= 120
+                     and 0 <= (now-dt.datetime.fromisoformat(reference)).total_seconds() <= (30 if bid_only else 120))
+        if saved.get("quote_status") != "VALID" or saved.get("price_source") not in allowed or not fresh:
             status = "UNAVAILABLE"
             if saved.get("quote_status") == "VALID" and not fresh:
                 result["monitor_reason"] = "STALE_EXECUTION" if at else "NOT_VERIFIED"
@@ -80,6 +94,12 @@ def monitoring(now, saved, expected, active, paused, closed_date):
             status = "TRACK_ONLY"
         elif 485 <= minute < 490:
             status = "EARLY_NXT"
+        elif saved.get("bot_sell_pending") or result["order_guard_reason"] in ("UNFILLED_SELL", "UNFILLED_UNKNOWN", "UNFILLED_UNKNOWN_OR_PENDING"):
+            status = "ORDER_PENDING"
+        elif result["order_guard_reason"]:
+            status = "ORDER_BLOCKED"
+        elif bid_only:
+            status = "EXIT_ONLY_BID"
         else:
             status = "ACTIVE"
     return dict(result, monitor_status=status)
@@ -96,7 +116,7 @@ def session(now, closed_date):
     if 485 <= minute < 490:
         return "NXT 제한 매도 감시"
     if 490 <= minute < 530 or 940 <= minute < 1200:
-        return "NXT 시간대"
+        return "KRX·NXT 애프터마켓" if minute >= 960 else "NXT 시간대"
     return "장외 / 마지막 관측"
 
 
@@ -196,7 +216,8 @@ class Reader:
                                  active and health_fresh and hp.get("account_valid") is not False,
                                  state.get("dashboard_control", {}).get("paused"), state.get("market_closed_date"))
             observed = monitor["last_valid_quote_at"]
-            quote = number(saved.get("last_valid_quote_price"), True) if price_source == expected and synced and observed else None
+            allowed = ("KRX", "NXT") if minute >= 960 else (expected,)
+            quote = number(saved.get("last_valid_quote_price"), True) if price_source in allowed and synced and observed else None
             if quote is None:
                 quote = number(p.get("account_price"), True)
                 price_source = "KRX_ACCOUNT_FALLBACK"

@@ -44,5 +44,46 @@ class MonitoringTests(unittest.TestCase):
         self.assertEqual(monitoring(now,s,'NXT',False,False,None)['monitor_status'],'SERVICE_UNAVAILABLE')
         self.assertEqual(monitoring(now,s,'NXT',True,False,'2026-10-19')['monitor_status'],'CLOSED')
 
+    def test_nxt_ineligible_does_not_block_krx_after_monitoring(self):
+        now=dt.datetime(2026,10,19,16,5,tzinfo=KST)
+        s=self.saved(now);s.update(nxt_eligible=False,quote_session='KRX_AFTER')
+        result=monitoring(now,s,'NXT',True,False,None)
+        self.assertEqual(result['monitor_status'],'ACTIVE')
+        self.assertEqual(result['quote_session'],'KRX_AFTER')
+
+    def test_fresh_bid_supports_exit_only_even_without_recent_trade(self):
+        now=dt.datetime(2026,10,19,16,5,tzinfo=KST)
+        s=self.saved(now);s.update(quote_basis='BID_ONLY',last_valid_bid_at=now.isoformat(),
+                                 last_valid_trade_at=(now-dt.timedelta(minutes=10)).isoformat())
+        self.assertEqual(monitoring(now,s,'NXT',True,False,None)['monitor_status'],'EXIT_ONLY_BID')
+        s['last_valid_bid_at']=(now-dt.timedelta(seconds=31)).isoformat()
+        self.assertEqual(monitoring(now,s,'NXT',True,False,None)['monitor_status'],'UNAVAILABLE')
+
+    def test_pending_order_and_unknown_eligibility_are_not_claimed_as_normal_monitoring(self):
+        now=dt.datetime(2026,10,19,16,5,tzinfo=KST)
+        s=self.saved(now);s['bot_sell_pending']={'market':'KRX','qty':1}
+        self.assertEqual(monitoring(now,s,'NXT',True,False,None)['monitor_status'],'ORDER_PENDING')
+        s.update(quote_status='UNAVAILABLE',quote_reason='ELIGIBILITY_UNKNOWN')
+        result=monitoring(now,s,'NXT',True,False,None)
+        self.assertEqual(result['monitor_status'],'UNAVAILABLE')
+        self.assertEqual(result['monitor_reason'],'ELIGIBILITY_UNKNOWN')
+
+    def test_before_1600_krx_after_is_not_claimed_active(self):
+        now=dt.datetime(2026,10,19,15,50,tzinfo=KST)
+        s=self.saved(now);s.update(nxt_eligible=False,quote_session='KRX_REGULAR')
+        self.assertEqual(monitoring(now,s,'NXT',True,False,None)['monitor_status'],'NOT_ELIGIBLE')
+
+    def test_missing_executable_book_is_not_presented_as_normal_sell_monitoring(self):
+        now=dt.datetime(2026,10,19,16,5,tzinfo=KST)
+        s=self.saved(now);s['order_guard_reason']='ORDER_BOOK_UNAVAILABLE'
+        self.assertEqual(monitoring(now,s,'NXT',True,False,None)['monitor_status'],'ORDER_BLOCKED')
+
+    def test_venue_specific_order_rejection_is_visible_without_blocking_other_venue(self):
+        now=dt.datetime(2026,10,19,16,5,tzinfo=KST)
+        s=self.saved(now);s.update(sell_retry_after=(now+dt.timedelta(minutes=10)).isoformat(),last_sell_error={'market':'KRX'})
+        self.assertEqual(monitoring(now,s,'NXT',True,False,None)['monitor_status'],'ORDER_BLOCKED')
+        s['last_sell_error']['market']='NXT'
+        self.assertEqual(monitoring(now,s,'NXT',True,False,None)['monitor_status'],'ACTIVE')
+
 
 if __name__=='__main__':unittest.main()

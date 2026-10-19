@@ -1,5 +1,6 @@
 """Receive a bounded private code patch through the existing authenticated SSH terminal."""
 import base64
+import argparse
 import datetime as dt
 import gzip
 import hashlib
@@ -12,15 +13,18 @@ import subprocess
 import sys
 import termios
 
-from update_quotes import BOT_BASELINE
+from update_quotes import PROFILES
 
 FILES={'changes.diff','test_execution_quotes.py','test_trailing.py','test_fixed_monitor.py',
        'test_etf_guard.py','comparison_report.py'}
 
 
 def main():
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--profile',choices=PROFILES,default='execution')
+    profile=PROFILES[parser.parse_args().profile]
     bot=Path('/opt/bots/kiwoom-stock/main.py')
-    if hashlib.sha256(bot.read_bytes()).hexdigest()!=BOT_BASELINE:
+    if hashlib.sha256(bot.read_bytes()).hexdigest()!=profile['baseline']:
         raise RuntimeError('Bot source changed; review before transfer')
     saved=termios.tcgetattr(sys.stdin)
     hidden=list(saved);hidden[3]&=~termios.ECHO
@@ -40,7 +44,8 @@ def main():
     with gzip.GzipFile(fileobj=io.BytesIO(packed)) as handle:raw=handle.read(2000001)
     if len(raw)>2000000:raise ValueError('Payload too large')
     data=json.loads(raw)
-    if set(data['files'])!=FILES:raise ValueError('Unexpected files')
+    expected=FILES|{'test_krx_after.py'} if profile['extra_tests'] else FILES
+    if set(data['files'])!=expected:raise ValueError('Unexpected files')
     if any(not isinstance(v,str) or len(v)>500000 for v in data['files'].values()):raise ValueError('Invalid file')
     stage=Path.home()/dt.datetime.now().strftime('quote-stage-%Y%m%d-%H%M%S')
     stage.mkdir(mode=0o700)

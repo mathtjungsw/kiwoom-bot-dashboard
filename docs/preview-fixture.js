@@ -13,5 +13,8 @@ export function fixture() {
     p.last_valid_quote_at=index===0?null:p.observed_at;
     p.last_valid_trade_at=index===0?null:p.observed_at;
   });
+  data.source.session='KRX·NXT 애프터마켓';
+  Object.assign(data.positions[0],{monitor_status:'ACTIVE',monitor_reason:'OK',price_source:'KRX',quote_session:'KRX_AFTER',last_valid_quote_at:data.positions[0].observed_at,last_valid_trade_at:data.positions[0].observed_at});
+  Object.assign(data.positions[1],{monitor_status:'EXIT_ONLY_BID',quote_basis:'BID_ONLY',quote_session:'KRX_AFTER',price_source:'KRX',last_valid_bid_at:data.positions[1].observed_at});
   return data;
 }
