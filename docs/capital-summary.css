@@ -1,0 +1,17 @@
+.capital-section{padding-top:12px;border-bottom:1px solid var(--line)}
+.capital-section .section-heading{margin-bottom:12px}
+.capital-section h2{font-size:17px}
+.capital-section .section-heading>span{font-size:12px}
+.capital-summary{padding:10px 0 14px}
+.capital-basis,.capital-flows{color:var(--muted);font-size:12px;line-height:1.7;padding-bottom:15px}
+.capital-flows{padding-bottom:5px}
+.metric-hint{font-size:11px;margin-left:3px;font-weight:400}
+.holdings-summary{padding:22px 0 20px}
+.holdings-summary strong{font-size:23px}
+.account-rail{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:var(--muted);flex-wrap:wrap;padding:0 0 18px}
+.account-rail b{color:var(--ink);font-weight:600;margin-left:5px}
+.trailing-rates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:0 0 16px}
+.trailing-rates>div{display:flex;align-items:baseline;justify-content:space-between;gap:6px;min-width:0;flex-wrap:wrap}
+.trailing-rates span{font-size:12px;color:var(--muted)}
+.trailing-rates strong{font-size:17px;font-variant-numeric:tabular-nums}
+@media(max-width:700px){.capital-section{padding-top:7px}.capital-summary{gap:18px 15px;padding-bottom:12px}.capital-summary strong{font-size:23px}.holdings-summary{gap:18px 15px;padding:18px 0}.holdings-summary strong{font-size:21px}.summary>div>span{font-size:12px}.account-rail{font-size:12px}.capital-basis,.capital-flows{font-size:11px}}

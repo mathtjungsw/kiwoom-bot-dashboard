@@ -8,4 +8,5 @@ data/
 *.key
 *.log
 .local/
+backups/
 !data/.gitkeep

@@ -35,6 +35,21 @@ def code(value):
     return str(value).removeprefix("A").zfill(6)
 
 
+def capital_summary(equity, capital=None):
+    capital = capital or {}
+    initial = number(capital.get("initial_capital"), True)
+    flows = number(capital.get("net_external_flows"))
+    configured = initial is not None and flows is not None
+    contributed = number(initial + flows) if configured else None
+    configured = configured and contributed is not None
+    assets = number(equity)
+    pnl = number(assets - contributed) if configured and assets is not None else None
+    return dict(configured=configured, initial_capital=initial, net_external_flows=flows,
+                net_contributions=contributed, pnl=pnl,
+                return_pct=number(pnl/contributed*100) if pnl is not None and contributed > 0 else None,
+                basis="SIMPLE_NET_CONTRIBUTIONS")
+
+
 def session(now, closed_date):
     minute = now.hour * 60 + now.minute
     if now.weekday() > 4 or closed_date == now.date().isoformat():
@@ -104,7 +119,7 @@ class Reader:
         self.cached_at = time.monotonic()
         return self.cached
 
-    def snapshot(self, active):
+    def snapshot(self, active, capital=None):
         state_path = self.root / "trail_state.json"
         if state_path.stat().st_size > 40_000_000:
             raise ValueError("State exceeds expected size")
@@ -158,6 +173,7 @@ class Reader:
         complete = all(p["pnl"] is not None for p in positions)
         pnl = sum(p["pnl"] for p in positions) if complete else None
         cost = sum(p["entry"]*p["qty"] for p in positions)
+        valuation = sum(p["price"]*p["qty"] for p in positions) if complete else None
         return dict(schema_version=1, generated_at=now.isoformat(),
                     source=dict(control_id=state.get("dashboard_control", {}).get("request_id") or None,
                                 account_at=timestamp(account["ts"]), state_at=dt.datetime.fromtimestamp(state_path.stat().st_mtime, KST).isoformat(),
@@ -167,7 +183,9 @@ class Reader:
                                 start_rate=number(trail.get("start_rate")) or .03, gap_rate=number(trail.get("gap_rate")) or .01,
                                 hard_stop_rate=.1, max_stocks=5, strategy=str(runtime.get("implementation_version", "saved state"))[:100],
                                 session=session(now, state.get("market_closed_date"))),
+                    capital=capital_summary(account["equity"], capital),
                     account=dict(equity=number(account["equity"]), deposit=number(account["deposit"]), pnl=pnl,
+                                 purchase_amount=cost, valuation_amount=valuation,
                                  return_pct=pnl/cost*100 if pnl is not None and cost else None),
                     positions=positions, trades=historical["trades"], trade_count=historical["trade_count"], comparisons=historical["comparisons"])
 

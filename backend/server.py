@@ -14,7 +14,7 @@ import sqlite3
 import subprocess
 import threading
 import time
-from .reader import Reader
+from .reader import Reader, number
 
 WEEK = 7 * 86400
 HERE = Path(__file__).resolve().parent.parent
@@ -94,6 +94,20 @@ class Store:
         with self.db() as db:
             db.execute("DELETE FROM sessions WHERE hash=?", (digest(token),))
 
+    def capital(self):
+        with self.db() as db:
+            values = dict(db.execute("SELECT key,value FROM settings WHERE key IN ('initial_capital','net_external_flows')"))
+        return {key:number(value) for key,value in values.items()}
+
+    def set_capital(self, initial, net_external_flows=0):
+        initial = number(initial, True)
+        flows = number(net_external_flows)
+        if initial is None or flows is None:
+            raise ValueError("Capital must be positive and external flows must be finite")
+        with self.db() as db:
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('initial_capital',?)", (str(initial),))
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('net_external_flows',?)", (str(flows),))
+
 
 class Application:
     def __init__(self, data, root, control, origins, service_check=None):
@@ -113,7 +127,7 @@ class Application:
     def snapshot(self):
         with self.lock:
             if self.cache is None or time.monotonic()-self.cache_at >= 2:
-                self.cache = self.reader.snapshot(self.service_check())
+                self.cache = self.reader.snapshot(self.service_check(), capital=self.store.capital())
                 self.cache_at = time.monotonic()
             return self.cache
 
@@ -246,12 +260,18 @@ class Server(ThreadingHTTPServer):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["serve", "password"], nargs="?", default="serve")
+    parser.add_argument("action", choices=["serve", "password", "capital"], nargs="?", default="serve")
+    parser.add_argument("--initial-capital", type=float)
+    parser.add_argument("--net-external-flows", type=float, default=0)
     parser.add_argument("--data", default=os.getenv("DASHBOARD_AUTH_DB", "/var/lib/kiwoom-dashboard/auth.db"))
     parser.add_argument("--root", default="/opt/bots/kiwoom-stock")
     parser.add_argument("--control", default="/var/lib/kiwoom-dashboard-control/command.json")
     parser.add_argument("--port", type=int, default=8880)
     args = parser.parse_args()
+    if args.action == "capital":
+        Store(args.data).set_capital(args.initial_capital, args.net_external_flows)
+        print("Capital settings saved. Authentication and bot data unchanged.")
+        return
     if args.action == "password":
         first = getpass.getpass("New dashboard password (12-128 characters): ")
         second = getpass.getpass("Confirm password: ")
