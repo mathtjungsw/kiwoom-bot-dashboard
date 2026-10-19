@@ -8,6 +8,7 @@ import urllib.request
 import json
 from .company_info import (ROOT, MONTH, NEWS_TTL, KIND_URL, NEWS_URL, atomic_json,
                            read_json, parse_listing, news_items, quota)
+from .official_site import introduction
 
 
 def download(url, headers=None, limit=262144):
@@ -24,8 +25,9 @@ def download(url, headers=None, limit=262144):
 
 
 class Worker:
-    def __init__(self, root=ROOT, fetch=download, clock=time.time):
+    def __init__(self, root=ROOT, fetch=download, clock=time.time, site_lookup=None):
         self.root, self.fetch, self.clock = Path(root), fetch, clock
+        self.site_lookup = site_lookup or introduction
 
     def profile(self, code):
         now = self.clock()
@@ -42,8 +44,24 @@ class Worker:
                     atomic_json(self.root / 'listing_retry.json', dict(retry_at=now + 86400))
         found = listing.get('rows', {}).get(code)
         if found:
+            found = dict(found)
             if now - found.get('checked_at', 0) >= MONTH:
                 found = dict(found, refresh_at=now + 86400)
+            previous = read_json(self.root / 'profiles' / (code + '.json'))
+            # Profile lookups run only in this low-priority worker, never in the bot/API.
+            if found.get('website') and quota(self.root, now, 'site_quota.json', 10, 100):
+                try:
+                    found.update(self.site_lookup(found['website']), overview_checked_at=now)
+                except Exception:
+                    found['overview_unavailable'] = True
+                    if previous.get('overview'):
+                        for key in ('overview', 'overview_source_url', 'overview_source_label',
+                                    'overview_method', 'overview_checked_at'):
+                            if key in previous:
+                                found[key] = previous[key]
+            else:
+                found['overview_unavailable'] = True
+            found['refresh_at'] = now + MONTH
             atomic_json(self.root / 'profiles' / (code + '.json'), found)
         else:
             atomic_json(self.root / 'profiles' / (code + '.json'),
@@ -75,6 +93,10 @@ class Worker:
 
     def run(self):
         now = self.clock()
+        # Keep cache usage bounded, including companies that are no longer held.
+        profiles = sorted((self.root / 'profiles').glob('*.json'), key=lambda p:p.stat().st_mtime, reverse=True)
+        for path in profiles[200:]:
+            path.unlink(missing_ok=True)
         # Hard purge even if the associated stock is no longer viewed/held.
         for path in (self.root / 'news').glob('*.json'):
             if now >= read_json(path).get('expires_at', 0):

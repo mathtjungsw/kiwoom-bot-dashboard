@@ -188,14 +188,14 @@ class InfoCache:
                     news=news or dict(state='WAITING', items=[], fetched_at=None))
 
 
-def quota(root, now):
-    path = Path(root) / 'quota.json'
+def quota(root, now, filename='quota.json', daily_limit=90, monthly_limit=2700):
+    path = Path(root) / filename
     local = dt.datetime.fromtimestamp(now, dt.timezone(dt.timedelta(hours=9)))
     day, month = local.strftime('%Y-%m-%d'), local.strftime('%Y-%m')
     saved = read_json(path)
     daily = saved.get('daily', 0) if saved.get('day') == day else 0
     monthly = saved.get('monthly', 0) if saved.get('month') == month else 0
-    if daily >= 90 or monthly >= 2700:
+    if daily >= daily_limit or monthly >= monthly_limit:
         return False
     atomic_json(path, dict(day=day, month=month, daily=daily + 1, monthly=monthly + 1))
     return True

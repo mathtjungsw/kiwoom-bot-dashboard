@@ -11,7 +11,7 @@ import time
 import urllib.error
 import urllib.request
 
-MODULES = ('backend/server.py', 'backend/company_info.py', 'backend/info_worker.py')
+MODULES = ('backend/server.py', 'backend/company_info.py', 'backend/info_worker.py', 'backend/official_site.py')
 UNITS = ('kiwoom-company-info.service', 'kiwoom-company-info.path', 'kiwoom-company-info.timer')
 
 
@@ -62,6 +62,9 @@ def main():
     for name in ('queue','profiles','news'):
         (root/name).mkdir(mode=0o700,exist_ok=True)
         shutil.chown(root/name,user='ubuntu',group='ubuntu')
+    catalog = json.loads((root/'listing.json').read_text()) if (root/'listing.json').exists() else {}
+    if len(catalog.get('rows',{})) < 100:
+        raise RuntimeError('Import the public company catalog before installing; bot/API left unchanged')
     run('systemctl','stop','kiwoom-dashboard')
     try:
         for dest,source in files:shutil.copy2(source,dest)

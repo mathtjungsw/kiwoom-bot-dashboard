@@ -23,6 +23,9 @@ class CompanyInfoTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.cache = InfoCache(self.root, lambda:NOW)
+        mock_site = patch('backend.info_worker.introduction', side_effect=ValueError('Test site unavailable'))
+        mock_site.start()
+        self.addCleanup(mock_site.stop)
 
     def tearDown(self):
         self.temp.cleanup()
@@ -74,6 +77,26 @@ class CompanyInfoTests(unittest.TestCase):
         def fetch(url,**kwargs):calls.append(url);return self.fetch(url,**kwargs)
         Worker(self.root,fetch,lambda:NOW).run()
         self.assertEqual(calls.count(KIND_URL),1)
+
+    def test_official_intro_is_cached_separately_from_news_and_basic_registry_data(self):
+        self.cache.get('005930','테스트전자')
+        lookup=lambda url:dict(overview='공식 홈페이지의 검증용 기업 소개문입니다.', overview_source_url=url,
+                              overview_source_label='공식 홈페이지 소개문', overview_method='site_metadata')
+        Worker(self.root,self.fetch,lambda:NOW,site_lookup=lookup).run()
+        value=self.cache.get('005930','테스트전자')['profile']
+        self.assertIn('공식 홈페이지',value['overview'])
+        self.assertEqual(value['overview_checked_at'],NOW)
+        self.assertEqual(value['products'],'부품 & 센서')
+        self.assertEqual(read_json(self.root/'site_quota.json')['daily'],1)
+
+    def test_site_failure_keeps_previous_intro_with_its_original_check_date(self):
+        atomic_json(self.root/'profiles/005930.json',dict(code='005930',overview='Last verified introduction',
+                    overview_checked_at=NOW-MONTH,overview_source_url='https://example.com'))
+        Worker(self.root,self.fetch,lambda:NOW).profile('005930')
+        value=read_json(self.root/'profiles/005930.json')
+        self.assertEqual(value['overview'],'Last verified introduction')
+        self.assertEqual(value['overview_checked_at'],NOW-MONTH)
+        self.assertTrue(value['overview_unavailable'])
 
     def test_unconfigured_news_does_not_prevent_company_info(self):
         self.cache.get('005930','테스트전자');Worker(self.root,self.fetch,lambda:NOW).run()
