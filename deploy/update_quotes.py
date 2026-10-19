@@ -82,15 +82,20 @@ def main():
         run('systemctl','start','kiwoom-stock')
         run('systemctl','start','kiwoom-dashboard')
         deadline=time.monotonic()+90
+        started_at=now.replace(microsecond=0)
         while True:
             run('systemctl','is-active','--quiet','kiwoom-stock')
             run('systemctl','is-active','--quiet','kiwoom-dashboard')
             with sqlite3.connect((bot.parent/'data/trading_analytics.db').as_uri()+'?mode=ro',uri=True,timeout=1) as db:
                 row=db.execute("SELECT ts,payload_json FROM events WHERE event_type='RUNTIME_START' ORDER BY id DESC LIMIT 1").fetchone()
+                health=db.execute("SELECT ts,payload_json FROM events WHERE event_type='MONITOR_HEALTH' ORDER BY id DESC LIMIT 1").fetchone()
             state=json.loads((bot.parent/'trail_state.json').read_text())
             if (row and json.loads(row[1]).get('implementation_version')=='2026-10-19_EXECUTION_QUOTES'
-                    and dt.datetime.fromisoformat(row[0]).replace(tzinfo=ZoneInfo('Asia/Seoul'))>=now
-                    and state.get('dashboard_control',{}).get('paused') is False):
+                    and dt.datetime.fromisoformat(row[0]).replace(tzinfo=ZoneInfo('Asia/Seoul'))>=started_at
+                    and health and json.loads(health[1]).get('account_valid') is True
+                    and dt.datetime.fromisoformat(health[0]).replace(tzinfo=ZoneInfo('Asia/Seoul'))>=started_at
+                    and state.get('dashboard_control',{}).get('paused') is False
+                    and dt.datetime.fromisoformat(state['dashboard_control']['acknowledged_at']).replace(tzinfo=ZoneInfo('Asia/Seoul'))>=started_at):
                 break
             if time.monotonic()>deadline:raise RuntimeError('Fresh bot startup/control acknowledgement not confirmed')
             time.sleep(2)
