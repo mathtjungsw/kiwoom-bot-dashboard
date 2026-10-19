@@ -39,11 +39,11 @@ class Worker:
                     listing = dict(checked_at=now, rows=rows)
                     atomic_json(path, listing)
                 except Exception:
-                    atomic_json(self.root / 'listing_retry.json', dict(retry_at=now + 3600))
+                    atomic_json(self.root / 'listing_retry.json', dict(retry_at=now + 86400))
         found = listing.get('rows', {}).get(code)
         if found:
             if now - found.get('checked_at', 0) >= MONTH:
-                found = dict(found, refresh_at=now + 3600)
+                found = dict(found, refresh_at=now + 86400)
             atomic_json(self.root / 'profiles' / (code + '.json'), found)
         else:
             atomic_json(self.root / 'profiles' / (code + '.json'),
