@@ -38,7 +38,7 @@ class CapitalTests(unittest.TestCase):
     def test_zero_net_contribution_does_not_divide_by_zero(self):
         self.assertIsNone(capital_summary(100,dict(initial_capital=100,net_external_flows=-100))['return_pct'])
     def test_missing_quote_does_not_show_partial_valuation(self):
-        path=self.root/'trail_state.json';saved=json.loads(path.read_text());saved['positions']['000001']['last_current_price']=None;path.write_text(json.dumps(saved))
+        path=self.root/'trail_state.json';saved=json.loads(path.read_text());saved['positions']['000001']['last_current_price']=None;saved['positions']['000001']['last_valid_quote_price']=None;path.write_text(json.dumps(saved))
         import sqlite3
         conn=sqlite3.connect(self.root/'data/trading_analytics.db');positions=json.loads(conn.execute('SELECT positions_json FROM account_samples').fetchone()[0]);positions[0]['account_price']=None;conn.execute('UPDATE account_samples SET positions_json=?',(json.dumps(positions),));conn.commit();conn.close()
         data=Reader(self.root).snapshot(True);self.assertIsNone(data['account']['valuation_amount']);self.assertEqual(data['account']['purchase_amount'],12000)

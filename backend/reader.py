@@ -50,6 +50,41 @@ def capital_summary(equity, capital=None):
                 basis="SIMPLE_NET_CONTRIBUTIONS")
 
 
+def monitoring(now, saved, expected, active, paused, closed_date):
+    minute = now.hour * 60 + now.minute
+    eligible = saved.get("nxt_eligible")
+    reason = "NOT_ELIGIBLE" if expected == "NXT" and eligible is False else str(saved.get("quote_reason") or "NOT_VERIFIED")
+    result = dict(monitor_reason=reason, nxt_eligible=eligible,
+                  last_valid_quote_at=timestamp(saved.get("last_valid_quote_at")),
+                  last_valid_trade_at=timestamp(saved.get("last_valid_trade_at")),
+                  quote_checked_at=timestamp(saved.get("quote_checked_at")))
+    if not active or paused is not False:
+        status = "PAUSED" if paused else "SERVICE_UNAVAILABLE"
+    elif now.weekday() > 4 or closed_date == now.date().isoformat():
+        status = "CLOSED"
+    elif not (480 <= minute < 530 or 540 <= minute < 930 or 940 <= minute < 1200):
+        status = "OFF"
+    elif reason == "NOT_ELIGIBLE":
+        status = "NOT_ELIGIBLE"
+    else:
+        at = result["last_valid_quote_at"]
+        trade = result["last_valid_trade_at"]
+        fresh = all(value and 0 <= (now-dt.datetime.fromisoformat(value)).total_seconds() <= 120 for value in (at, trade))
+        if saved.get("quote_status") != "VALID" or saved.get("price_source") != expected or not fresh:
+            status = "UNAVAILABLE"
+            if saved.get("quote_status") == "VALID" and not fresh:
+                result["monitor_reason"] = "STALE_EXECUTION" if at else "NOT_VERIFIED"
+        elif 920 <= minute < 930:
+            status = "AUCTION_TRACK"
+        elif 480 <= minute < 485:
+            status = "TRACK_ONLY"
+        elif 485 <= minute < 490:
+            status = "EARLY_NXT"
+        else:
+            status = "ACTIVE"
+    return dict(result, monitor_status=status)
+
+
 def session(now, closed_date):
     minute = now.hour * 60 + now.minute
     if now.weekday() > 4 or closed_date == now.date().isoformat():
@@ -139,6 +174,9 @@ class Reader:
         now = dt.datetime.now(KST)
         minute = now.hour * 60 + now.minute
         expected = "KRX" if 540 <= minute < 930 else "NXT"
+        hp = json.loads(health["payload_json"]) if health else {}
+        health_at = timestamp(health["ts"]) if health else None
+        health_fresh = bool(health_at and 0 <= (now-dt.datetime.fromisoformat(health_at)).total_seconds() <= 120)
         positions = []
         for p in json.loads(account["positions_json"]):
             qty = int(number(p.get("qty")) or 0)
@@ -153,11 +191,16 @@ class Reader:
             saved = state.get("positions", {}).get(symbol, {})
             synced = number(saved.get("entry"), True) is not None and abs(float(saved["entry"]) - entry) <= max(.01, entry * .0001) and int(number(saved.get("qty")) or 0) == qty
             price_source = saved.get("price_source", "")
-            quote = number(saved.get("last_current_price"), True) if price_source == expected and synced else None
-            observed = timestamp(saved.get("last_update")) if quote is not None else timestamp(account["ts"])
+            # Reconciliation updates last_update without fetching a quote. Never use it as quote time.
+            monitor = monitoring(now, saved if synced else {}, expected,
+                                 active and health_fresh and hp.get("account_valid") is not False,
+                                 state.get("dashboard_control", {}).get("paused"), state.get("market_closed_date"))
+            observed = monitor["last_valid_quote_at"]
+            quote = number(saved.get("last_valid_quote_price"), True) if price_source == expected and synced and observed else None
             if quote is None:
                 quote = number(p.get("account_price"), True)
                 price_source = "KRX_ACCOUNT_FALLBACK"
+                observed = timestamp(account["ts"])
             stage = str(saved.get("stage", "대기")) if synced else "동기화 확인"
             positions.append(dict(code=symbol, name=str(saved.get("name") or symbol)[:80], qty=qty, entry=entry,
                                   price=quote, price_source=str(price_source)[:40], observed_at=observed, stage=stage,
@@ -166,8 +209,8 @@ class Reader:
                                   hard_stop_price=entry * .9, peak_price=number(saved.get("max_price"), True) if synced else None,
                                   pnl=(quote-entry)*qty if quote is not None else None,
                                   return_pct=(quote/entry-1)*100 if quote is not None else None,
-                                  opened_at=timestamp(saved.get("opened_at")) if synced else None, stale_state=not synced))
-        hp = json.loads(health["payload_json"]) if health else {}
+                                  opened_at=timestamp(saved.get("opened_at")) if synced else None, stale_state=not synced,
+                                  **monitor))
         runtime = historical["runtime"]
         trail = runtime.get("trailing", {})
         complete = all(p["pnl"] is not None for p in positions)

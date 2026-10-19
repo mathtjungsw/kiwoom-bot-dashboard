@@ -35,7 +35,7 @@ def fixture(root):
         db.execute('INSERT INTO sheet_trade_outbox VALUES (?,?,?)',(str(i).zfill(4),now,json.dumps(row)))
     db.commit();db.close()
     source='KRX' if 540<=dt.datetime.now(KST).hour*60+dt.datetime.now(KST).minute<930 else 'NXT'
-    saved={p['code']:dict(entry=1000,qty=2,name='테스트 종목 '+p['code'],last_current_price=1050,price_source=source,last_update=now,stage='트레일중',trail_start_price=1030,trail_stop_price=1048,max_price=1055) for p in positions}
+    saved={p['code']:dict(entry=1000,qty=2,name='테스트 종목 '+p['code'],last_current_price=1050,last_valid_quote_price=1050,last_valid_quote_at=now,last_valid_trade_at=now,quote_status='VALID',quote_reason='OK',price_source=source,last_update=now,stage='트레일중',trail_start_price=1030,trail_stop_price=1048,max_price=1055) for p in positions}
     (root/'trail_state.json').write_text(json.dumps(dict(positions=saved,dashboard_control=dict(request_id='confirmed',paused=False))),encoding='utf-8')
 
 
