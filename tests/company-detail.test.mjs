@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {companyContent,publicLink} from '../docs/company-detail.js';
+const sample={profile:{industry:'전자부품 제조업',products:'센서 & 반도체',website:'https://example.com',source_url:'https://kind.krx.co.kr',checked_at:2000000000},news:{state:'READY',items:[{title:'기사 제목',url:'https://example.com/news',publisher:'예시 언론',provided_at:'2026-10-19T10:00:00+09:00'}],fetched_at:2000000000}};
+test('company description and linked news keep independent sections',()=>{const html=companyContent(sample);assert.match(html,/주요 제품·사업/);assert.match(html,/센서 &amp; 반도체/);assert.match(html,/기사 제목/);assert.match(html,/네이버 검색/);assert.match(html,/noopener noreferrer/);});
+test('provider text never executes as markup',()=>{const html=companyContent({...sample,profile:{...sample.profile,products:'<script>alert(1)</script>'},news:{state:'READY',items:[{title:'<img src=x onerror=alert(1)>',url:'javascript:alert(1)'}]}});assert.doesNotMatch(html,/<script>|<img|javascript:/);});
+test('unavailable description and news do not invent content',()=>{const html=companyContent({profile:null,news:{state:'ERROR'}});assert.match(html,/확인하지 못했습니다/);assert.match(html,/뉴스 연결이 지연/);assert.doesNotMatch(html,/<ol>/);});
+test('pending lookup does not show old news',()=>{assert.match(companyContent({pending:true,news:{state:'WAITING'}}),/확인하고 있습니다/);});
+test('unsafe links rejected',()=>{for(const value of ['javascript:alert(1)','data:text/html,evil','https://user:pass@example.com','broken'])assert.equal(publicLink(value),null);});
+test('official introduction is sourced separately and escaped',()=>{const html=companyContent({...sample,profile:{...sample.profile,overview:'회사 <b>소개</b>',overview_source_url:'https://example.com/about',overview_source_label:'공식 홈페이지 소개문',overview_checked_at:2000000000}});assert.match(html,/어떤 회사인가요/);assert.match(html,/회사 &lt;b&gt;소개&lt;\/b&gt;/);assert.match(html,/공식 홈페이지 소개문/);assert.match(html,/기본정보 출처/);});
+test('unavailable official introduction explicitly falls back to basic data',()=>{assert.match(companyContent(sample),/소개문을 확인하지 못해 등록된 기본정보/);});
