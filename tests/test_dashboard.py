@@ -96,6 +96,16 @@ class HTTPTests(unittest.TestCase):
         with response:return response.status,json.loads(response.read()),dict(response.headers)
     def test_auth_required_for_snapshot_and_control(self):
         self.assertEqual(self.request('/bot-api/snapshot')[0],401);self.assertEqual(self.request('/bot-api/control',{'action':'pause'})[0],401)
+        self.assertEqual(self.request('/bot-api/company/000001')[0],401)
+    def test_company_lookup_is_private_only_held_symbols_and_does_not_block_snapshot(self):
+        from backend.company_info import InfoCache
+        self.app.info=InfoCache(self.root/'info')
+        _,session,_=self.request('/bot-api/login',{'password':'Test-password-123'});token=session['token']
+        status,data,_=self.request('/bot-api/company/000001',token=token)
+        self.assertEqual(status,200);self.assertTrue(data['pending'])
+        self.assertEqual(self.request('/bot-api/company/999999',token=token)[0],404)
+        self.assertEqual(self.request('/bot-api/company/000001?url=http://example.com',token=token)[0],404)
+        self.assertEqual(self.request('/bot-api/snapshot',token=token)[0],200)
     def test_cors_untrusted_origin_blocked(self):
         self.assertEqual(self.request('/bot-api/login',{'password':'Test-password-123'},origin='https://untrusted.invalid')[0],403)
     def test_login_snapshot_logout_and_replay(self):

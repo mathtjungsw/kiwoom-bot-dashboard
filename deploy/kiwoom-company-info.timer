@@ -1,0 +1,10 @@
+[Unit]
+Description=Purge expired temporary news cache
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=15min
+Unit=kiwoom-company-info.service
+
+[Install]
+WantedBy=timers.target

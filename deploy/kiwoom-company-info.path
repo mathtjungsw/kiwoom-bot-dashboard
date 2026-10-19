@@ -1,0 +1,9 @@
+[Unit]
+Description=Queue trigger for optional company/news information
+
+[Path]
+DirectoryNotEmpty=/var/lib/kiwoom-dashboard-info/queue
+Unit=kiwoom-company-info.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,26 @@
+[Unit]
+Description=On-demand company information and news lookup (not trading)
+StartLimitIntervalSec=60
+StartLimitBurst=12
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/kiwoom-dashboard
+ExecStart=/usr/bin/python3 -m backend.info_worker
+Nice=19
+CPUQuota=10%
+MemoryMax=64M
+TasksMax=8
+IOWeight=10
+TimeoutStartSec=120
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/kiwoom-dashboard-info
+InaccessiblePaths=/opt/bots/kiwoom-stock /var/lib/kiwoom-dashboard /var/lib/kiwoom-dashboard-control
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+

@@ -15,6 +15,7 @@ import subprocess
 import threading
 import time
 from .reader import Reader, number
+from .company_info import InfoCache, ROOT as INFO_ROOT
 
 WEEK = 7 * 86400
 HERE = Path(__file__).resolve().parent.parent
@@ -110,7 +111,7 @@ class Store:
 
 
 class Application:
-    def __init__(self, data, root, control, origins, service_check=None):
+    def __init__(self, data, root, control, origins, service_check=None, info_root=None):
         self.store = Store(data)
         self.reader = Reader(root)
         self.control = Path(control)
@@ -119,6 +120,17 @@ class Application:
         self.cache = None
         self.cache_at = 0
         self.service_check = service_check or self.active
+        self.info = InfoCache(info_root or os.getenv('DASHBOARD_INFO_ROOT', INFO_ROOT))
+
+    def company(self, code):
+        import re
+        if not re.fullmatch(r'[0-9A-Z]{6}', code):
+            raise ValueError('Invalid code')
+        saved = self.cache or self.snapshot()
+        item = next((p for p in saved['positions'] if p['code'] == code), None)
+        if item is None:
+            raise ValueError('Not a current holding')
+        return self.info.get(code, item['name'])
 
     @staticmethod
     def active():
@@ -187,6 +199,13 @@ def handler(app):
                 return self.reply(200, {"ok": True})
             if not app.store.valid(self.token()):
                 return self.reply(401, {"error": "로그인이 필요합니다."})
+            if self.path.startswith('/bot-api/company/'):
+                try:
+                    return self.reply(200, app.company(self.path.removeprefix('/bot-api/company/')))
+                except ValueError:
+                    return self.reply(404, {'error': '보유 종목을 확인해 주세요.'})
+                except Exception:
+                    return self.reply(503, {'error': '기업 정보 조회가 지연되었습니다. 매매 감시는 계속됩니다.'})
             if self.path != "/bot-api/snapshot":
                 return self.reply(404, {"error": "Not found"})
             try:
