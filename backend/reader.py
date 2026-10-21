@@ -99,7 +99,8 @@ def monitoring(now, saved, expected, active, paused, closed_date):
         elif result["order_guard_reason"]:
             status = "ORDER_BLOCKED"
         elif bid_only:
-            status = "EXIT_ONLY_BID"
+            status = "UNAVAILABLE"
+            result["monitor_reason"] = "WAITING_FOR_EXECUTION"
         else:
             status = "ACTIVE"
     return dict(result, monitor_status=status)
@@ -128,29 +129,70 @@ class Reader:
         self.enrollments = {}
         self.enrollment_cursor = 0
 
-    def historical(self, conn):
-        if self.cached is not None and time.monotonic() - self.cached_at < 60:
-            return self.cached
-        runtime = conn.execute("SELECT ts,payload_json FROM events WHERE event_type='RUNTIME_START' ORDER BY id DESC LIMIT 1").fetchone()
-        trades = []
+    def trade_history(self, conn):
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        records = []
+        lifecycle = [json.loads(r[0]) for r in conn.execute(
+            "SELECT payload_json FROM sell_order_lifecycle ORDER BY ordered_at DESC,order_key DESC LIMIT 200")
+            ] if 'sell_order_lifecycle' in tables else []
+        replaced = {(o['trade_id'], o['ordered_at']) for o in lifecycle}
         for row in conn.execute("SELECT event_id,payload_json FROM sheet_trade_outbox ORDER BY created_at DESC,event_id DESC LIMIT 200"):
-            p = json.loads(row["payload_json"])
-            if len(p) < 14 or p[2] not in ("BUY", "SELL"):
+            p = json.loads(row['payload_json'])
+            if len(p) < 14 or p[2] not in ('BUY', 'SELL') or (p[2] == 'SELL' and (p[1], p[0]) in replaced):
                 continue
-            sell = p[2] == "SELL"
-            trades.append(dict(id=row["event_id"], ts=timestamp(p[0]) or str(p[0]),
-                               code=code(p[3]), name=str(p[4])[:80], side=p[2], reason=str(p[9])[:80],
-                               qty=number(p[6]) or 0, price=number(p[5], True),
-                               pnl=number(p[8]) if sell else None,
-                               return_pct=number(p[7]) if sell else None,
-                               basis="REFERENCE_ESTIMATE" if sell and "MANUAL" not in str(p[9]) else "RECORDED_UNCONFIRMED",
-                               manual="MANUAL" in str(p[9])))
+            sell = p[2] == 'SELL'
+            item = dict(id=row['event_id'], ts=timestamp(p[0]) or str(p[0]),
+                        code=code(p[3]), name=str(p[4])[:80], side=p[2], reason=str(p[9])[:80],
+                        qty=number(p[6]) or 0, price=number(p[5], True),
+                        pnl=number(p[8]) if sell else None, return_pct=number(p[7]) if sell else None,
+                        basis='REFERENCE_ESTIMATE' if sell and 'MANUAL' not in str(p[9]) else 'RECORDED_UNCONFIRMED',
+                        manual='MANUAL' in str(p[9]))
+            if sell and not item['manual'] and 'execution_observations' in tables:
+                fills = conn.execute("SELECT sold_qty,fill_price,gross_pnl,account_entry FROM execution_observations "
+                                     "WHERE trade_id=? AND ordered_at=? AND price_source='KIWOOM_FILL'", (p[1], p[0])).fetchall()
+                if fills and item['qty'] > 0 and sum(r[0] for r in fills) == item['qty'] and all(number(r[1], True) is not None and number(r[2]) is not None and number(r[3], True) is not None for r in fills):
+                    cost = sum(r[3]*r[0] for r in fills)
+                    item.update(price=sum(r[0]*r[1] for r in fills)/item['qty'], pnl=sum(r[2] for r in fills),
+                                basis='FILL_CONFIRMED', execution_status='FILLED')
+                    item['return_pct'] = item['pnl']/cost*100 if cost > 0 else None
+            records.append(item)
+        for o in lifecycle:
+            qty = int(number(o.get('filled_qty')) or 0)
+            value = number(o.get('fill_value')) or 0
+            entry = number(o.get('entry'), True)
+            pnl = value-entry*qty if qty > 0 and entry is not None else None
+            records.append(dict(id=o['order_key'], ts=timestamp(o['ordered_at']), code=code(o['code']),
+                                name=str(o.get('name') or o['code'])[:80], side='SELL', reason=o['reason'],
+                                qty=qty, requested_qty=o['qty'], filled_qty=qty, execution_status=o['status'],
+                                price=value/qty if qty else None, limit_price=number(o.get('limit_price'), True),
+                                reference_price=number(o.get('reference_price'), True), pnl=pnl,
+                                return_pct=pnl/(entry*qty)*100 if pnl is not None else None,
+                                basis='FILL_CONFIRMED' if qty else 'ORDER_PENDING', manual=False,
+                                corrected=bool(o.get('correction')), market=o['market']))
+        records.sort(key=lambda r: (r['ts'] or '', r['id']), reverse=True)
+        count = conn.execute('SELECT count(*) FROM sheet_trade_outbox').fetchone()[0]
+        if 'sell_order_lifecycle' in tables:
+            count += conn.execute('SELECT count(*) FROM sell_order_lifecycle').fetchone()[0]
+            count -= conn.execute("SELECT count(*) FROM sheet_trade_outbox s WHERE json_extract(s.payload_json,'$[2]')='SELL' "
+                                  "AND EXISTS (SELECT 1 FROM sell_order_lifecycle o WHERE o.trade_id=json_extract(s.payload_json,'$[1]') "
+                                  "AND o.ordered_at=json_extract(s.payload_json,'$[0]'))").fetchone()[0]
+        return dict(trades=records[:200], trade_count=count)
+
+    def historical(self, conn):
+        history = self.trade_history(conn)
+        if self.cached is not None and time.monotonic() - self.cached_at < 60:
+            return dict(self.cached, **history)
+        runtime = conn.execute("SELECT ts,payload_json FROM events WHERE event_type='RUNTIME_START' ORDER BY id DESC LIMIT 1").fetchone()
         latest_id = conn.execute("SELECT coalesce(max(id),0) FROM events").fetchone()[0]
         for row in conn.execute("SELECT trade_id,strategy_name,payload_json FROM events WHERE id>? AND id<=? AND event_type='COMPARISON_ENROLL' ORDER BY id", (self.enrollment_cursor, latest_id)):
             self.enrollments[(row["trade_id"], row["strategy_name"])] = json.loads(row["payload_json"]).get("cohort")
         self.enrollment_cursor = latest_id
         groups = {cohort: {name: {} for name in NAMES} for cohort in ("NEW_ENTRY", "EXISTING_FORWARD")}
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        excluded = {r[0] for r in conn.execute('SELECT trade_id FROM analysis_exclusions')} if 'analysis_exclusions' in tables else set()
         for row in conn.execute("SELECT trade_id,strategy_name,stage,active,return_pct FROM strategy_results WHERE strategy_name IN (?,?,?,?)", NAMES):
+            if row['trade_id'] in excluded:
+                continue
             cohort = self.enrollments.get((row["trade_id"], row["strategy_name"]))
             if cohort in groups:
                 groups[cohort][row["strategy_name"]][row["trade_id"]] = dict(row)
@@ -168,11 +210,10 @@ class Reader:
                                     median_pct=statistics.median(values) if values else None,
                                     delta_pp=statistics.mean(deltas) if deltas else None))
             comparisons.append(dict(cohort=cohort, common_completed=len(common), strategies=metrics))
-        self.cached = dict(trades=trades, trade_count=conn.execute("SELECT count(*) FROM sheet_trade_outbox").fetchone()[0],
-                           comparisons=comparisons, runtime_at=timestamp(runtime["ts"]) if runtime else None,
+        self.cached = dict(comparisons=comparisons, analysis_excluded_count=len(excluded), runtime_at=timestamp(runtime["ts"]) if runtime else None,
                            runtime=json.loads(runtime["payload_json"]) if runtime else {})
         self.cached_at = time.monotonic()
-        return self.cached
+        return dict(self.cached, **history)
 
     def snapshot(self, active, capital=None):
         state_path = self.root / "trail_state.json"
@@ -251,6 +292,7 @@ class Reader:
                     account=dict(equity=number(account["equity"]), deposit=number(account["deposit"]), pnl=pnl,
                                  purchase_amount=cost, valuation_amount=valuation,
                                  return_pct=pnl/cost*100 if pnl is not None and cost else None),
-                    positions=positions, trades=historical["trades"], trade_count=historical["trade_count"], comparisons=historical["comparisons"])
+                    positions=positions, trades=historical["trades"], trade_count=historical["trade_count"], comparisons=historical["comparisons"],
+                    analysis_excluded_count=historical["analysis_excluded_count"])
 
 

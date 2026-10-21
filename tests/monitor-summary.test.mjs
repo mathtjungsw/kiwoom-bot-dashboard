@@ -27,9 +27,9 @@ test('KRX after remains active for an NXT-ineligible stock',()=>{
   assert.ok(html.includes('KRX 애프터 · 매도 감시 중'));
   assert.ok(!html.includes('감시 불가'));
 });
-test('bid-only quotes explicitly pause peak updates and show book time',()=>{
+test('bid-only quotes explicitly wait for execution and show book time',()=>{
   const html=monitorSummary({monitor_status:'EXIT_ONLY_BID',quote_session:'KRX_AFTER',quote_basis:'BID_ONLY',last_valid_bid_at:'a'},fmt);
-  assert.ok(html.includes('최고가 갱신 보류'));
+  assert.ok(html.includes('체결 확인 대기'));
   assert.ok(html.includes('매수호가 10:20'));
 });
 test('accepted or unverified orders are not presented as fills',()=>{

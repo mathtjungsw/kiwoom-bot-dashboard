@@ -51,11 +51,13 @@ class MonitoringTests(unittest.TestCase):
         self.assertEqual(result['monitor_status'],'ACTIVE')
         self.assertEqual(result['quote_session'],'KRX_AFTER')
 
-    def test_fresh_bid_supports_exit_only_even_without_recent_trade(self):
+    def test_fresh_bid_without_recent_trade_never_claims_sell_monitoring(self):
         now=dt.datetime(2026,10,19,16,5,tzinfo=KST)
         s=self.saved(now);s.update(quote_basis='BID_ONLY',last_valid_bid_at=now.isoformat(),
                                  last_valid_trade_at=(now-dt.timedelta(minutes=10)).isoformat())
-        self.assertEqual(monitoring(now,s,'NXT',True,False,None)['monitor_status'],'EXIT_ONLY_BID')
+        result=monitoring(now,s,'NXT',True,False,None)
+        self.assertEqual(result['monitor_status'],'UNAVAILABLE')
+        self.assertEqual(result['monitor_reason'],'WAITING_FOR_EXECUTION')
         s['last_valid_bid_at']=(now-dt.timedelta(seconds=31)).isoformat()
         self.assertEqual(monitoring(now,s,'NXT',True,False,None)['monitor_status'],'UNAVAILABLE')
 
