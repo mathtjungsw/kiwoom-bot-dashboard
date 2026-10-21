@@ -1,8 +1,8 @@
 import {accountSummary} from './account-summary.js';
 import {trailingSummary} from './trailing-summary.js';
 import {installCompanyDetails} from './company-detail.js';
-import {monitorSummary} from './monitor-summary.js';
-import {tradeSummary} from './trade-summary.js';
+import {monitorSummary} from './monitor-summary.js?v=20261021-execution';
+import {tradeSummary} from './trade-summary.js?v=20261021-execution';
 const API = location.hostname === 'localhost' || location.hostname === '127.0.0.1' ? `${location.origin}/bot-api` : 'https://stock-journal.52-79-211-161.sslip.io/bot-api';
 const KEY='kiwoom_dashboard_session_v1';
 const app=document.querySelector('#app'), dialogs=document.querySelector('#dialog-root');
