@@ -21,6 +21,7 @@ class BotControlTests(unittest.TestCase):
         self.ns=dict(os=os,json=json,dt=dt,time=types.SimpleNamespace(monotonic=lambda:self.clock),SELL_POLL_SEC=2.0,CONTROL_REFRESH_SEC=5.0,DISPLAY_REFRESH_SEC=30.0,ACCOUNT_REFRESH_SEC=10.0,LIVE_STRATEGY_NAME='test',REST_MIN_INTERVAL_SEC=.25,
                      now_str=lambda:'2026-10-16 10:00:00',log=Mock(),save_state=Mock(),fetch_account=Mock(return_value=(100,1000,[])),reconcile_state_with_account=Mock(),analytics_account_sample=Mock(),sell_mode_now=lambda:'FULL',is_buy_time_now=lambda:True,run_sell_logic=Mock(),update_shadow_tracking=Mock(),print_dashboard=Mock(),analytics_event=Mock())
         self.ns.update(is_nxt_price_time_now=lambda:False,store_quote_observation=Mock())
+        self.ns.update(sync_sell_orders=Mock(),unsettled_sell_orders=lambda:False)
         exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),str(SOURCE),'exec'),self.ns)
         self.monitor=self.ns['PriceMonitor'](types.SimpleNamespace(),None,{'positions':{}})
         self.env=patch.dict(os.environ,{'DASHBOARD_CONTROL_FILE':str(self.path)});self.env.start()
